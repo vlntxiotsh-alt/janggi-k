@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>장기 게임</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#17202a;color:#fff;font-family:system-ui,-apple-system,"Noto Sans KR",sans-serif;display:flex;justify-content:center}
+.app{width:min(100%,760px);padding:18px}.top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+h1{margin:0;font-size:25px}.info{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.badge{background:#263746;border-radius:999px;padding:8px 12px;font-weight:700}
+button{border:0;border-radius:10px;padding:9px 13px;font-weight:800;cursor:pointer;background:#e8d6a8;color:#251d13}
+button:hover{filter:brightness(1.08)}
+#board{margin:18px auto 12px;width:min(94vw,680px);aspect-ratio:10/9;background:#c89b5a;border:9px solid #71451f;box-shadow:0 12px 30px #0008;display:grid;grid-template-columns:repeat(9,1fr);grid-template-rows:repeat(10,1fr);position:relative}
+.cell{position:relative;border-right:1px solid #68451f;border-bottom:1px solid #68451f;display:flex;align-items:center;justify-content:center}
+.cell:nth-child(9n){border-right:0}.cell:nth-last-child(-n+9){border-bottom:0}
+.cell:before,.cell:after{content:"";position:absolute;background:#68451f;pointer-events:none}
+.cell:before{height:1px;width:100%;top:50%;left:0}.cell:after{width:1px;height:100%;left:50%;top:0}
+.piece{z-index:2;width:78%;height:78%;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:clamp(19px,4.2vw,34px);font-weight:900;border:3px solid #50351d;box-shadow:0 3px 5px #0007;text-shadow:0 1px #fff5;user-select:none}
+.han{background:#e7c994;color:#18251c}.cho{background:#b95a4c;color:#fff4e8}
+.selected{outline:4px solid #5ee6ff;outline-offset:1px}.legal{background:#3e8f57aa}.legal:before{background:#4cae68}.legal:after{background:#4cae68}
+.piece.legalpiece{outline:3px solid #71e8ff}
+.status{text-align:center;min-height:28px;font-size:18px;font-weight:800}.hint{text-align:center;color:#b9c5ce;font-size:13px}
+@media(max-width:500px){.app{padding:10px}.top h1{font-size:21px}button{padding:8px 10px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <h1>♟ 장기 게임</h1>
+    <div class="info"><span class="badge" id="turn">한 차례</span><button onclick="newGame()">새 게임</button><button onclick="undo()">무르기</button></div>
+  </div>
+  <div id="board"></div>
+  <div class="status" id="status">기물을 선택하세요.</div>
+  <div class="hint">한(漢)과 초(楚)가 번갈아 두는 2인용 장기입니다. 상대 왕(궁)을 잡으면 승리합니다.</div>
+</div>
+<script>
+const W=9,H=10;
+const names={K:'궁',A:'사',E:'상',H:'마',R:'차',C:'포',P:'졸'};
+let board,turn,sel,hist;
+const init=[
+['E','A','K','A','E',null,null,null,null],
+[null,null,'R',null,null,null,'R',null,null],
+['P',null,'P',null,'P',null,'P',null,'P'],
+[null,'C',null,null,null,null,null,'C',null],
+[null,null,null,null,null,null,null,null,null],
+[null,'C',null,null,null,null,null,'C',null],
+['P',null,'P',null,'P',null,'P',null,'P'],
+[null,null,'R',null,null,null,'R',null,null],
+['E','A','K','A','E',null,null,null,null]
+];
+// Standard opposing armies are mirrored. We label Han on top, Cho bottom.
+function makeGame(){
+ board=Array.from({length:H},()=>Array(W).fill(null));
+ const top=['E','A','K','A','E',null,null,null,null];
+ // use common initial placement: elephants/guards/king, rooks on 0/8, horses beside rooks, cannons row 2, soldiers row 3
+ put('H',0,0,'R');put('H',8,0,'R');put('H',1,0,'H');put('H',7,0,'H');put('H',2,0,'E');put('H',6,0,'E');put('H',3,0,'A');put('H',5,0,'A');put('H',4,0,'K');
+ put('H',1,2,'C');put('H',7,2,'C');[0,2,4,6,8].forEach(x=>put('H',x,3,'P'));
+ put('C',0,9,'R');put('C',8,9,'R');put('C',1,9,'H');put('C',7,9,'H');put('C',2,9,'E');put('C',6,9,'E');put('C',3,9,'A');put('C',5,9,'A');put('C',4,9,'K');
+ put('C',1,7,'C');put('C',7,7,'C');[0,2,4,6,8].forEach(x=>put('C',x,6,'P'));
+ turn='H';sel=null;hist=[];render();
+}
+function put(c,x,y,t){board[y][x]={side:c,type:t}}
+function inb(x,y){return x>=0&&x<W&&y>=0&&y<H}
+function same(a,b){return a&&b&&a.side===b.side}
+function palace(x,y,side){return side==='H' ? x>=3&&x<=5&&y>=0&&y<=2 : x>=3&&x<=5&&y>=7&&y<=9}
+function palaceDiag(x,y,nx,ny,side){
+ const corners=side==='H'?[[3,0],[5,0],[3,2],[5,2]]:[[3,7],[5,7],[3,9],[5,9]];
+ return corners.some(([a,b])=>(x-a)*(ny-b)===(y-b)*(nx-a) && Math.abs(nx-x)===Math.abs(ny-y) && palace(nx,ny,side));
+}
+function add(m,x,y,nx,ny){if(!inb(nx,ny)||same(board[y][x],board[ny][nx]))return; m.push([nx,ny])}
+function moves(x,y){
+ const p=board[y][x],m=[]; if(!p)return m;
+ const f=p.side==='H'?1:-1;
+ if(p.type==='P'){add(m,x,y,x,y+f); if(palace(x,y,p.side)||palace(x,y+f,p.side)){add(m,x,y,x-1,y+f);add(m,x,y,x+1,y+f)}}
+ if(p.type==='K'||p.type==='A'){
+   add(m,x,y,x,y+1);add(m,x,y,x,y-1);add(m,x,y,x+1,y);add(m,x,y,x-1,y);
+   [[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dx,dy])=>{if(palaceDiag(x,y,x+dx,y+dy,p.side))add(m,x,y,x+dx,y+dy)});
+ }
+ if(p.type==='H'){
+   [[1,2],[-1,2],[1,-2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]].forEach(([dx,dy])=>{
+     const bx=x+(Math.abs(dx)===2?dx/2:0),by=y+(Math.abs(dy)===2?dy/2:0);
+     if(inb(bx,by)&&!board[by][bx])add(m,x,y,x+dx,y+dy);
+   });
+ }
+ if(p.type==='E'){
+   [[1,2],[-1,2],[1,-2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]].forEach(([dx,dy])=>{
+     const sx=dx>0?1:-1,sy=dy>0?1:-1; let x1=x+sx,y1=y+sy,x2=x+dx,y2=y+dy;
+     if(inb(x1,y1)&&inb(x2,y2)&&!board[y1][x1]){const xmid=x+sx,yfinal=y+sy*2; if(inb(xmid,yfinal)&&!board[yfinal][xmid])add(m,x,y,x2,y2)}
+   });
+ }
+ if(p.type==='R'){
+   [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{let nx=x+dx,ny=y+dy;while(inb(nx,ny)){if(board[ny][nx]){if(!same(p,board[ny][nx]))m.push([nx,ny]);break}m.push([nx,ny]);nx+=dx;ny+=dy}});
+   if(palace(x,y,p.side))[[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dx,dy])=>{let nx=x+dx,ny=y+dy;if(palaceDiag(x,y,nx,ny,p.side)&&!same(p,board[ny][nx]))m.push([nx,ny])});
+ }
+ if(p.type==='C'){
+   [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{
+     let nx=x+dx,ny=y+dy,seen=false;
+     while(inb(nx,ny)){if(!seen){if(board[ny][nx])seen=true;else{nx+=dx;ny+=dy;continue}}
+       else{if(board[ny][nx]){if(board[ny][nx].type!=='C'&&!same(p,board[ny][nx]))m.push([nx,ny]);break}else m.push([nx,ny])}
+       nx+=dx;ny+=dy;
+     }
+   });
+ }
+ return [...new Map(m.map(v=>[v.join(','),v])).values()];
+}
+function render(){
+ const el=document.getElementById('board');el.innerHTML='';
+ for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+   const c=document.createElement('div');c.className='cell';
+   if(sel&&sel[0]===x&&sel[1]===y)c.classList.add('selected');
+   if(sel&&moves(...sel).some(v=>v[0]===x&&v[1]===y))c.classList.add('legal');
+   c.onclick=()=>clickCell(x,y);
+   const p=board[y][x];if(p){const q=document.createElement('div');q.className='piece '+(p.side==='H'?'han':'cho');q.textContent=names[p.type];if(sel&&moves(...sel).some(v=>v[0]===x&&v[1]===y))q.classList.add('legalpiece');c.appendChild(q)}
+   el.appendChild(c);
+ }
+ document.getElementById('turn').textContent=turn==='H'?'한 차례':'초 차례';
+}
+function clickCell(x,y){
+ const p=board[y][x];
+ if(sel){
+   const legal=moves(...sel).some(v=>v[0]===x&&v[1]===y);
+   if(legal){hist.push(JSON.stringify({board,turn}));move(sel[0],sel[1],x,y);sel=null;turn=turn==='H'?'C':'H';render();checkWin();return}
+   if(p&&p.side===turn){sel=[x,y];render();return}
+   sel=null;render();return;
+ }
+ if(p&&p.side===turn){sel=[x,y];render()}
+}
+function move(x,y,nx,ny){board[ny][nx]=board[y][x];board[y][x]=null}
+function checkWin(){
+ const h=board.flat().some(p=>p&&p.side==='H'&&p.type==='K');
+ const c=board.flat().some(p=>p&&p.side==='C'&&p.type==='K');
+ if(!h||!c){document.getElementById('status').textContent=(h?'한':'초')+' 승리!';return}
+ document.getElementById('status').textContent='기물을 선택하세요.';
+}
+function undo(){if(!hist.length)return;const s=JSON.parse(hist.pop());board=s.board;turn=s.turn;sel=null;render();document.getElementById('status').textContent='한 수 무르기 완료.'}
+function newGame(){makeGame();document.getElementById('status').textContent='기물을 선택하세요.'}
+makeGame();
+</script>
+</body>
+</html>
